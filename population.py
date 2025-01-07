@@ -83,7 +83,7 @@ class AgentPopulation:
     @timing_decorator
     def breed_new_generation(self, sorted_agents_with_fitness):
         new_agents = []
-        elite_count = self.population_size // 5  # Keep top 20%
+        elite_count = self.population_size // 10  # Keep top 10%
 
         # Elitism - keep best performers
         new_agents.extend(
@@ -128,12 +128,11 @@ def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
         while not done:
             action = agent.get_action(state, env)
             next_state, reward, done = env.step(action)
-            total_reward += reward
-
-            current_max = max(max(row) for row in env.board)
-            max_tile = max(max_tile, current_max)
-
             state = next_state
+
+        total_reward += reward
+        current_max = max(max(row) for row in env.board)
+        max_tile = max(max_tile, current_max)
 
     return total_reward / episodes, max_tile
 
@@ -187,7 +186,7 @@ def train_population(generations=500):
             current_batch_max = 0
 
             # Update plot
-            plot_training_progress(
+            plt = plot_training_progress(
                 batch_avg_rewards, batch_max_tiles, batch_highest_scores
             )
 
@@ -222,10 +221,15 @@ def train_population(generations=500):
             Logger.log(f"Total: {gen_time:.2f}s")
             Logger.log(f"Avg generation time: {sum(gen_times)/len(gen_times):.2f}s")
 
-    return sorted_agents[0], (batch_avg_rewards, batch_max_tiles, batch_highest_scores)
+    return (
+        sorted_agents[0],
+        (batch_avg_rewards, batch_max_tiles, batch_highest_scores),
+        plt,
+    )
 
 
-def plot_training_progress(avg_rewards, max_tiles, highest_scores, save=False):
+#! TODO CHANGE SO IT POSTS THE CORRECT GENERATION (RIGHT NOW 10 INSTEAD OF 5)
+def plot_training_progress(avg_rewards, max_tiles, highest_scores):
     if not plt.get_fignums():
         plt.ion()
         plt.figure(figsize=(12, 12))
@@ -254,14 +258,14 @@ def plot_training_progress(avg_rewards, max_tiles, highest_scores, save=False):
     plt.ylabel("Max Tile")
 
     plt.tight_layout()
-    if save:
-        plt.savefig("training_progress.png")
-    else:
-        plt.draw()
-        plt.pause(0.001)
+    plt.draw()
+    plt.pause(0.001)
+
+    return plt
 
 
 if __name__ == "__main__":
     mp.set_start_method("spawn")
-    best_agent, history = train_population(generations=1000)
+    best_agent, history, plt = train_population(generations=1000)
+    plt.savefig("training_progress.png")
     torch.save(best_agent.state_dict(), "best_agent.pt")

@@ -4,7 +4,6 @@ import numpy as np
 
 
 class Game2048Env:
-
     def __init__(self):
         self.board = [[0] * 4 for _ in range(4)]
         self.score = 0
@@ -58,7 +57,6 @@ class Game2048Env:
         print("\nUse WASD to move (Q to quit)")
 
     def merge(self, row):
-        # Remove zeros and merge similar numbers
         new_row = [x for x in row if x != 0]
         i = 0
         while i < len(new_row) - 1:
@@ -66,7 +64,6 @@ class Game2048Env:
                 new_row[i] *= 2
                 new_row.pop(i + 1)
             i += 1
-        # Pad with zeros
         return new_row + [0] * (4 - len(new_row))
 
     def move(self, direction):
@@ -101,7 +98,6 @@ class Game2048Env:
         moved = self.move(action)
         self.add_new_tile()
 
-        # Use valid moves check directly
         done = len(self.get_valid_moves()) == 0
 
         if done:
