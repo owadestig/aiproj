@@ -42,6 +42,18 @@ class AgentPopulation:
         self.agents = [NNAgent(self.action_space) for _ in range(population_size)]
         self.fitness_cache = {}  # Cache for fitness scores
         self.temperature = 1.0
+        self.stagnation_counter = 0
+        self.best_score = float("-inf")
+
+    def update_mutation_rate(self, current_best):
+        if current_best > self.best_score:
+            self.best_score = current_best
+            self.stagnation_counter = 0
+            self.mutation_rate = max(0.1, self.mutation_rate * 0.95)
+        else:
+            self.stagnation_counter += 1
+            if self.stagnation_counter > 10:
+                self.mutation_rate = min(0.5, self.mutation_rate * 1.1)
 
     @timing_decorator
     def crossover(self, parent1: NNAgent, parent2: NNAgent) -> NNAgent:
@@ -80,7 +92,6 @@ class AgentPopulation:
             0
         ]  # Return agent with highest score
 
-    @timing_decorator
     def breed_new_generation(self, sorted_agents_with_fitness):
         new_agents = []
         elite_count = self.population_size // 10  # Keep top 10%
@@ -116,6 +127,89 @@ class AgentPopulation:
 
         return new_agents
 
+    def train_population(self, generations=500):
+        chunk_size = self.population_size // mp.cpu_count()
+        gen_times = []
+
+        # Lists to store batch metrics
+        batch_avg_rewards = []
+        batch_max_tiles = []
+        batch_highest_scores = []
+        current_batch_scores = []
+        current_batch_max = 0
+
+        for generation in range(generations):
+            gen_start = time.time()
+
+            eval_start = time.time()
+            with mp.Pool(processes=mp.cpu_count()) as pool:
+                fitness_results = pool.map(
+                    evaluate_agent, self.agents, chunksize=chunk_size
+                )
+            eval_time = time.time() - eval_start
+
+            # Sort by fitness
+            agents_with_fitness = list(zip(self.agents, fitness_results))
+            agents_with_fitness.sort(key=lambda x: x[1][0], reverse=True)
+            sorted_agents = [agent for agent, _ in agents_with_fitness]
+
+            # Get elite scores for this generation
+            elite_count = self.population_size // 40
+            elite_scores = [
+                score for _, (score, _) in agents_with_fitness[:elite_count]
+            ]
+            current_batch_scores.extend(elite_scores)
+
+            # Track highest score in batch
+            gen_highest = max(score for _, (score, _) in agents_with_fitness)
+            current_batch_max = max(current_batch_max, gen_highest)
+
+            if (generation + 1) % 5 == 0:
+                batch_avg_rewards.append(np.mean(current_batch_scores))
+                batch_highest_scores.append(current_batch_max)
+                batch_max_tiles.append(
+                    max(tile for _, (_, tile) in agents_with_fitness)
+                )
+
+                # Reset batch tracking
+                current_batch_scores = []
+                current_batch_max = 0
+
+                # Update plot
+                plt = plot_training_progress(
+                    batch_avg_rewards, batch_max_tiles, batch_highest_scores
+                )
+
+            print(
+                f"Generation {generation}: Score = {gen_highest:.2f}, Max Tile = {max(tile for _, (_, tile) in agents_with_fitness)}"
+            )
+
+            current_best = max(score for _, (score, _) in agents_with_fitness)
+
+            # Update mutation rate based on improvement
+            self.update_mutation_rate(current_best)
+
+            breed_start = time.time()
+            # Replace simple agent creation with proper breeding
+            self.agents = self.breed_new_generation(agents_with_fitness)
+            breed_time = time.time() - breed_start
+
+            gen_time = time.time() - gen_start
+            gen_times.append(gen_time)
+
+            if Logger.enabled:
+                Logger.log(f"\nGeneration {generation}:")
+                Logger.log(f"Evaluation: {eval_time:.2f}s")
+                Logger.log(f"Breeding: {breed_time:.2f}s")
+                Logger.log(f"Total: {gen_time:.2f}s")
+                Logger.log(f"Avg generation time: {sum(gen_times)/len(gen_times):.2f}s")
+
+        return (
+            sorted_agents[0],
+            (batch_avg_rewards, batch_max_tiles, batch_highest_scores),
+            plt,
+        )
+
 
 def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
     env = Game2048Env()
@@ -126,7 +220,24 @@ def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
         state = env.reset()
         done = False
         while not done:
-            action = agent.get_action(state, env)
+            # Create one-hot encoded state vector
+            tile_vector = []
+            for row in state:
+                for tile in row:
+                    if tile > 0:
+                        # Create one-hot encoding for each tile (12 possible values: 2^1 to 2^11)
+                        tile_arr = np.zeros(12)
+                        index = int(np.log2(tile))
+                        tile_arr[index] = 1
+                    else:
+                        tile_arr = np.zeros(12)
+                        tile_arr[0] = 1
+                    tile_vector.extend(tile_arr)
+
+            # Convert state to the format expected by the network
+            state_array = np.array(tile_vector, dtype=np.float32)
+
+            action = agent.get_action(state_array, env)
             next_state, reward, done = env.step(action)
             state = next_state
 
@@ -135,97 +246,6 @@ def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
         max_tile = max(max_tile, current_max)
 
     return total_reward / episodes, max_tile
-
-
-def train_population(generations=500):
-    population = AgentPopulation()
-    chunk_size = population.population_size // mp.cpu_count()
-    gen_times = []
-
-    # Lists to store batch metrics
-    batch_avg_rewards = []
-    batch_max_tiles = []
-    batch_highest_scores = []
-    current_batch_scores = []
-    current_batch_max = 0
-
-    stagnation_counter = 0
-    best_score = float("-inf")
-
-    for generation in range(generations):
-        gen_start = time.time()
-
-        eval_start = time.time()
-        with mp.Pool(processes=mp.cpu_count()) as pool:
-            fitness_results = pool.map(
-                evaluate_agent, population.agents, chunksize=chunk_size
-            )
-        eval_time = time.time() - eval_start
-
-        # Sort by fitness
-        agents_with_fitness = list(zip(population.agents, fitness_results))
-        agents_with_fitness.sort(key=lambda x: x[1][0], reverse=True)
-        sorted_agents = [agent for agent, _ in agents_with_fitness]
-
-        # Get elite scores for this generation
-        elite_count = population.population_size // 40
-        elite_scores = [score for _, (score, _) in agents_with_fitness[:elite_count]]
-        current_batch_scores.extend(elite_scores)
-
-        # Track highest score in batch
-        gen_highest = max(score for _, (score, _) in agents_with_fitness)
-        current_batch_max = max(current_batch_max, gen_highest)
-
-        if (generation + 1) % 5 == 0:
-            batch_avg_rewards.append(np.mean(current_batch_scores))
-            batch_highest_scores.append(current_batch_max)
-            batch_max_tiles.append(max(tile for _, (_, tile) in agents_with_fitness))
-
-            # Reset batch tracking
-            current_batch_scores = []
-            current_batch_max = 0
-
-            # Update plot
-            plt = plot_training_progress(
-                batch_avg_rewards, batch_max_tiles, batch_highest_scores
-            )
-
-        print(
-            f"Generation {generation}: Score = {gen_highest:.2f}, Max Tile = {max(tile for _, (_, tile) in agents_with_fitness)}"
-        )
-
-        current_best = max(score for _, (score, _) in agents_with_fitness)
-
-        # Adjust temperature based on improvement
-        if current_best > best_score:
-            best_score = current_best
-            stagnation_counter = 0
-            population.temperature = max(0.5, population.temperature * 0.95)
-        else:
-            stagnation_counter += 1
-            if stagnation_counter > 10:
-                population.temperature = min(2.0, population.temperature * 1.1)
-
-        breed_start = time.time()
-        # Replace simple agent creation with proper breeding
-        population.agents = population.breed_new_generation(agents_with_fitness)
-        breed_time = time.time() - breed_start
-
-        gen_time = time.time() - gen_start
-        gen_times.append(gen_time)
-
-        if Logger.enabled:
-            Logger.log(f"\nGeneration {generation}:")
-            Logger.log(f"Evaluation: {eval_time:.2f}s")
-            Logger.log(f"Breeding: {breed_time:.2f}s")
-            Logger.log(f"Total: {gen_time:.2f}s")
-            Logger.log(f"Avg generation time: {sum(gen_times)/len(gen_times):.2f}s")
-
-    return (
-        sorted_agents[0],
-        (batch_avg_rewards, batch_max_tiles, batch_highest_scores),
-        plt,
-    )
 
 
 #! TODO CHANGE SO IT POSTS THE CORRECT GENERATION (RIGHT NOW 10 INSTEAD OF 5)
@@ -266,6 +286,7 @@ def plot_training_progress(avg_rewards, max_tiles, highest_scores):
 
 if __name__ == "__main__":
     mp.set_start_method("spawn")
-    best_agent, history, plt = train_population(generations=1000)
+    pop = AgentPopulation(population_size=100)
+    best_agent, history, plt = pop.train_population(generations=1000)
     plt.savefig("training_progress.png")
     torch.save(best_agent.state_dict(), "best_agent.pt")

@@ -1,6 +1,9 @@
 import os
 import random
 import numpy as np
+import time
+import torch
+from agent import LoadedNNAgent
 
 
 class Game2048Env:
@@ -44,6 +47,7 @@ class Game2048Env:
     def print_board(self):
         self.clear_screen()
         print("\n2048\n")
+        print(f"Score: {sum(sum(row) for row in self.board)}\n")  # Add score display
         for row in self.board:
             print("+------" * 4 + "+")
             print("|", end="")
@@ -51,7 +55,7 @@ class Game2048Env:
                 if cell == 0:
                     print("      |", end="")
                 else:
-                    print(f"{cell:^6}|", end="")
+                    print(f" {cell:4d} |", end="")
             print()
         print("+------" * 4 + "+")
         print("\nUse WASD to move (Q to quit)")
@@ -137,5 +141,55 @@ def play_game():
             break
 
 
-if __name__ == "__main__":
-    play_game()
+def play_with_agent(delay=0.5):
+    # Initialize environment and agent
+    env = Game2048Env()
+    agent = LoadedNNAgent(env.action_space)
+
+    # Load trained weights
+    try:
+        agent.load_state_dict(torch.load("best_agent.pt"))
+    except FileNotFoundError:
+        print("Error: agent.pt file not found!")
+        return
+
+    # Set agent to evaluation mode
+    agent.eval()
+
+    # Play game
+    state = env.reset()
+    done = False
+    total_score = 0
+    moves = 0
+
+    print("\nStarting game with trained agent...")
+    time.sleep(1)
+
+    while not done:
+        # Clear screen and print current state
+        env.print_board()
+        print(f"\nMoves: {moves} | Score: {total_score}")
+
+        # Get action from agent
+        action = agent.get_action(state, env)
+        if action is None:
+            break
+
+        # Execute action
+        state, reward, done = env.step(action)
+        total_score += reward
+        moves += 1
+
+        # Wait before next move
+        time.sleep(delay)
+
+    # Print final state
+    env.print_board()
+    print(f"\nGame Over!")
+    print(f"Final Score: {total_score}")
+    print(f"Total Moves: {moves}")
+    print(f"Highest Tile: {max(max(row) for row in env.board)}")
+
+
+# play_game()
+# play_with_agent(delay=0.2)
