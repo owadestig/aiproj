@@ -39,7 +39,7 @@ class AgentPopulation:
         self.mutation_rate = 0.3
         self.mutation_strength = 0.1
         self.action_space = ["w", "a", "s", "d"]
-        self.agents = [NNAgent(self.action_space) for _ in range(population_size)]
+        self.agents = [NNAgent() for _ in range(population_size)]
         self.fitness_cache = {}  # Cache for fitness scores
         self.temperature = 1.0
         self.stagnation_counter = 0
@@ -57,7 +57,7 @@ class AgentPopulation:
 
     @timing_decorator
     def crossover(self, parent1: NNAgent, parent2: NNAgent) -> NNAgent:
-        child = NNAgent(self.action_space)
+        child = NNAgent()
 
         # Crossover neural network weights
         for child_param, p1_param, p2_param in zip(
@@ -71,7 +71,7 @@ class AgentPopulation:
 
     @timing_decorator
     def mutate_agent(self, agent: NNAgent) -> NNAgent:
-        new_agent = NNAgent(self.action_space)
+        new_agent = NNAgent()
         new_agent.load_state_dict(agent.state_dict())
 
         mutation_strength = self.mutation_strength * (1.0 - self.temperature / 2.0)
@@ -215,6 +215,7 @@ def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
     env = Game2048Env()
     total_reward = 0
     max_tile = 0
+    game_score = 0
 
     for _ in range(episodes):
         state = env.reset()
@@ -240,8 +241,10 @@ def evaluate_agent(agent: NNAgent, episodes=5) -> tuple[float, int]:
             action = agent.get_action(state_array, env)
             next_state, reward, done = env.step(action)
             state = next_state
+            game_score += reward
 
-        total_reward += reward
+        total_reward += game_score
+        game_score = 0
         current_max = max(max(row) for row in env.board)
         max_tile = max(max_tile, current_max)
 

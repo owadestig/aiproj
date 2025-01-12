@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 
 class NNAgent(nn.Module):
-    def __init__(self, action_space):
+    def __init__(self):
         super().__init__()
         self.action_map = {0: "w", 1: "a", 2: "s", 3: "d"}
 
@@ -55,7 +55,7 @@ class NNAgent(nn.Module):
 
 
 class LoadedNNAgent(nn.Module):
-    def __init__(self, action_space):
+    def __init__(self):
         super().__init__()
         self.action_map = {0: "w", 1: "a", 2: "s", 3: "d"}
 

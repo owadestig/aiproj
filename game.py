@@ -47,7 +47,8 @@ class Game2048Env:
     def print_board(self):
         self.clear_screen()
         print("\n2048\n")
-        print(f"Score: {sum(sum(row) for row in self.board)}\n")  # Add score display
+        print(f"Total Score: {self.score}")
+        print(f"Empty Tiles Bonus: {self.get_empty_tiles_score()}\n")
         for row in self.board:
             print("+------" * 4 + "+")
             print("|", end="")
@@ -99,17 +100,32 @@ class Game2048Env:
         if action not in valid_moves:
             raise ValueError(f"Invalid move: {action}. Valid moves are: {valid_moves}")
 
+        # Store old board for merge score calculation
+        old_board = [row[:] for row in self.board]
+
         moved = self.move(action)
         self.add_new_tile()
 
+        # Calculate composite score
+        merge_score = self.get_merge_score(old_board, self.board)
+        empty_score = self.get_empty_tiles_score()
+        turn_score = merge_score + empty_score
+
+        self.score += turn_score  # Update running total
         done = len(self.get_valid_moves()) == 0
 
-        if done:
-            score = sum(sum(row) for row in self.board)
-        else:
-            score = 0
+        return self._get_state(), turn_score, done
 
-        return self._get_state(), score, done
+    def get_merge_score(self, old_board, new_board):
+        """Calculate score from merged tiles"""
+        old_sum = sum(sum(row) for row in old_board)
+        new_sum = sum(sum(row) for row in new_board)
+        return new_sum - old_sum if new_sum > old_sum else 0
+
+    def get_empty_tiles_score(self):
+        """Reward for keeping spaces open"""
+        empty_count = sum(1 for row in self.board for cell in row if cell == 0)
+        return empty_count * 2
 
 
 def play_game():
@@ -144,7 +160,7 @@ def play_game():
 def play_with_agent(delay=0.5):
     # Initialize environment and agent
     env = Game2048Env()
-    agent = LoadedNNAgent(env.action_space)
+    agent = LoadedNNAgent()
 
     # Load trained weights
     try:
@@ -191,5 +207,6 @@ def play_with_agent(delay=0.5):
     print(f"Highest Tile: {max(max(row) for row in env.board)}")
 
 
-# play_game()
-# play_with_agent(delay=0.2)
+if __name__ == "__main__":
+    play_game()
+    # play_with_agent(delay=0.2)
